@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mini Mercearia</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@400;600;800&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<style>
+:root{--bg:#f4f7f2;--ink:#14241a;--card:#fff;--green:#1d5a38;--mango:#f4b72c;--red:#c93a2b;--line:#d9e2d6;--muted:#5d6e62}
+@media (prefers-color-scheme:dark){:root{--bg:#0f1a13;--ink:#eaf2ea;--card:#17261c;--green:#4fbf7f;--line:#2a3d30;--muted:#9bb0a0}}
+*{box-sizing:border-box}
+body{margin:0;font-family:'Bricolage Grotesque',system-ui,sans-serif;background:var(--bg);color:var(--ink);line-height:1.45}
+button,input,select,textarea{font:inherit;color:inherit}
+header{background:var(--green);color:#fff;padding:18px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px;position:sticky;top:0;z-index:5}
+@media (prefers-color-scheme:dark){header{background:#143523}}
+header h1{margin:0;font-size:1.6rem;font-weight:800;letter-spacing:-.02em}
+header small{display:block;font-weight:400;opacity:.85;font-size:.85rem}
+.btn{border:0;border-radius:10px;padding:10px 16px;font-weight:600;cursor:pointer;background:var(--mango);color:#14241a}
+.btn.sec{background:transparent;border:1.5px solid var(--line);color:var(--ink)}
+.btn.red{background:var(--red);color:#fff}
+.btn:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:3px solid var(--mango);outline-offset:2px}
+main{max-width:1000px;margin:0 auto;padding:16px}
+input,select,textarea{width:100%;padding:10px 12px;border:1.5px solid var(--line);border-radius:10px;background:var(--card);margin:4px 0 12px}
+label{font-weight:600;font-size:.9rem}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:14px}
+.p{background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden;display:flex;flex-direction:column}
+.p img,.ph{width:100%;aspect-ratio:1;object-fit:cover;background:var(--line);display:block}
+.p div.b{padding:10px;display:flex;flex-direction:column;gap:4px;flex:1}
+.p h3{margin:0;font-size:1rem}
+.price{font-weight:800;font-size:1.1rem;color:var(--green)}
+.muted{color:var(--muted);font-size:.85rem}
+.tag{display:inline-block;background:var(--red);color:#fff;border-radius:6px;padding:1px 8px;font-size:.75rem}
+.row{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+.panel{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:16px}
+#drawer{position:fixed;inset:0 0 0 auto;width:min(420px,100%);background:var(--bg);box-shadow:-8px 0 30px rgba(0,0,0,.3);transform:translateX(105%);transition:transform .25s;z-index:10;overflow:auto;padding:16px}
+#drawer.open{transform:none}
+#toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 18px;border-radius:10px;z-index:20;display:none}
+.qty{display:flex;align-items:center;gap:8px}
+.qty button{width:30px;height:30px;border-radius:8px;border:1.5px solid var(--line);background:var(--card);cursor:pointer}
+.item{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--line)}
+.hide{display:none}
+@media (prefers-reduced-motion:reduce){#drawer{transition:none}}
+</style>
+</head>
+<body>
+<header>
+  <h1>Mini Mercearia<small>Encomende e nós entramos em contacto</small></h1>
+  <div class="row"><button class="btn" id="cartBtn">Carrinho (<span id="cnt">0</span>)</button></div>
+</header>
+<main id="app"></main>
+<aside id="drawer" aria-label="Carrinho"></aside>
+<div id="toast" role="status"></div>
+
+<script>
+// ===== CONFIGURAÇÃO =====
+const SUPABASE_URL = "https://fpzzpbzulvrcwqckfulx.supabase.co";
+const SUPABASE_KEY = "sb_publishable_0X0mnsZkiA2VIT4lkUqzOw_9qzMC2qI";
+const ADMIN_UID = "8f22bb51-ff5d-4835-a0ee-eb86f96345df";
+const BUCKET = "product-images";
+const MOEDA = "MT";
+// ========================
+
+const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const money = n => Number(n).toLocaleString("pt-PT", {minimumFractionDigits:2, maximumFractionDigits:2}) + " " + MOEDA;
+let products = [], cart = {}, user = null;
+
+function toast(m){const t=$("#toast");t.textContent=m;t.style.display="block";clearTimeout(t._t);t._t=setTimeout(()=>t.style.display="none",3500)}
+const isAdmin = () => user && user.id === ADMIN_UID;
+
+async function loadProducts(){
+  const {data,error} = await db.from("products").select("*").order("name");
+  if(error){toast("Erro ao carregar produtos: "+error.message);return}
+  products = data || [];
+}
+
+function route(){ location.hash === "#admin" ? renderAdmin() : renderShop(); }
+window.addEventListener("hashchange", route);
+
+/* ---------- LOJA ---------- */
+let q = "";
+async function renderShop(){
+  $("#cartBtn").classList.remove("hide");
+  $("#app").innerHTML = `<input id="q" type="search" placeholder="Procurar produto..." value="${esc(q)}" aria-label="Procurar produto"><div class="grid" id="grid"></div>`;
+  $("#q").oninput = e => { q = e.target.value; drawGrid(); };
+  await loadProducts();
+  drawGrid();
+}
+function drawGrid(){
+  const list = products.filter(p => p.active && p.name.toLowerCase().includes(q.toLowerCase()));
+  $("#grid").innerHTML = list.length ? list.map(p => `
+    <div class="p">
+      ${p.image_url ? `<img src="${esc(p.image_url)}" alt="${esc(p.name)}" loading="lazy">` : `<div class="ph"></div>`}
+      <div class="b">
+        <h3>${esc(p.name)}</h3>
+        ${p.description ? `<span class="muted">${esc(p.description)}</span>` : ""}
+        <span class="price">${money(p.price)} <span class="muted">/ ${esc(p.unit||"un")}</span></span>
+        ${p.stock <= 0 ? `<span class="tag">Esgotado</span>` : `<button class="btn" data-add="${p.id}" style="margin-top:auto">Adicionar</button>`}
+      </div>
+    </div>`).join("") : `<p class="muted">Ainda não há produtos disponíveis.</p>`;
+  document.querySelectorAll("[data-add]").forEach(b => b.onclick = () => { cart[b.dataset.add] = (cart[b.dataset.add]||0)+1; updCart(); toast("Adicionado ao carrinho"); });
+}
+
+/* ---------- CARRINHO ---------- */
+const cartTotal = () => Object.entries(cart).reduce((s,[id,n]) => { const p = products.find(x=>x.id===id); return s + (p ? p.price*n : 0); }, 0);
+function updCart(){
+  $("#cnt").textContent = Object.values(cart).reduce((a,b)=>a+b,0);
+  const d = $("#drawer");
+  const items = Object.entries(cart).map(([id,n]) => ({p:products.find(x=>x.id===id), n})).filter(x=>x.p);
+  d.innerHTML = `<div class="row"><h2 style="margin:0">O seu carrinho</h2><button class="btn sec" id="closeCart">Fechar</button></div>
+  ${items.length ? items.map(({p,n}) => `<div class="item"><div><strong>${esc(p.name)}</strong><br><span class="muted">${money(p.price)}</span></div>
+    <div class="qty"><button data-m="${p.id}" aria-label="Menos">−</button><span>${n}</span><button data-a="${p.id}" aria-label="Mais">+</button></div></div>`).join("") : `<p class="muted">O carrinho está vazio.</p>`}
+  ${items.length ? `<p class="row"><strong>Total</strong><span class="price">${money(cartTotal())}</span></p>
+  <form id="ord"><label>Nome*</label><input name="n" required maxlength="80" autocomplete="name">
+  <label>Telefone*</label><input name="t" required type="tel" maxlength="30" autocomplete="tel">
+  <label>Endereço de entrega</label><input name="a" maxlength="200" autocomplete="street-address">
+  <label>Notas</label><textarea name="o" rows="2" maxlength="300"></textarea>
+  <button class="btn" style="width:100%" id="send">Enviar encomenda</button><p class="muted">Sem pagamento online. Entramos em contacto para confirmar.</p></form>` : ""}`;
+  $("#closeCart").onclick = () => d.classList.remove("open");
+  d.querySelectorAll("[data-a]").forEach(b => b.onclick = () => { cart[b.dataset.a]++; updCart(); });
+  d.querySelectorAll("[data-m]").forEach(b => b.onclick = () => { if(--cart[b.dataset.m] <= 0) delete cart[b.dataset.m]; updCart(); });
+  const f = $("#ord"); if(f) f.onsubmit = sendOrder;
+}
+$("#cartBtn").onclick = () => { updCart(); $("#drawer").classList.add("open"); };
+
+async function sendOrder(e){
+  e.preventDefault();
+  const btn = $("#send"); btn.disabled = true; btn.textContent = "A enviar...";
+  await loadProducts(); // preços sempre atualizados
+  const items = Object.entries(cart).map(([id,n]) => { const p = products.find(x=>x.id===id); return p && p.active ? {id, name:p.name, price:p.price, qty:n, unit:p.unit} : null; }).filter(Boolean);
+  if(!items.length){toast("Os produtos do carrinho já não estão disponíveis.");btn.disabled=false;btn.textContent="Enviar encomenda";return}
+  const total = items.reduce((s,i)=>s+i.price*i.qty,0);
+  const fd = new FormData(e.target);
+  const {error} = await db.from("orders").insert({customer_name:fd.get("n").trim(), customer_phone:fd.get("t").trim(), customer_address:fd.get("a").trim()||null, notes:fd.get("o").trim()||null, items, total, status:"pendente"});
+  if(error){toast("Erro ao enviar: "+error.message);btn.disabled=false;btn.textContent="Enviar encomenda";return}
+  cart = {}; updCart();
+  $("#drawer").innerHTML = `<h2>Encomenda enviada!</h2><p>Obrigado. Vamos contactá-lo em breve para confirmar.</p><button class="btn" id="ok">Fechar</button>`;
+  $("#ok").onclick = () => $("#drawer").classList.remove("open");
+}
+
+/* ---------- ADMIN ---------- */
+async function renderAdmin(){
+  $("#cartBtn").classList.add("hide");
+  $("#drawer").classList.remove("open");
+  const {data} = await db.auth.getSession(); user = data.session ? data.session.user : null;
+  if(!user) return loginView();
+  if(!isAdmin()){ $("#app").innerHTML = `<div class="panel"><p>Esta conta não tem acesso de administrador.</p><button class="btn sec" id="lo">Sair</button> <a href="#">Voltar à loja</a></div>`; $("#lo").onclick = logout; return; }
+  $("#app").innerHTML = `<div class="row" style="margin-bottom:12px"><h2 style="margin:0">Administração</h2><div><a href="#" class="btn sec" style="text-decoration:none">Ver loja</a> <button class="btn sec" id="lo">Sair</button></div></div>
+  <div class="panel"><h3 style="margin-top:0" id="ft">Novo produto</h3>
+  <form id="pf"><input type="hidden" name="id">
+  <label>Nome*</label><input name="name" required maxlength="80">
+  <label>Descrição</label><input name="description" maxlength="150">
+  <div class="row" style="align-items:flex-start"><div style="flex:1;min-width:120px"><label>Preço (${MOEDA})*</label><input name="price" type="number" step="0.01" min="0" required></div>
+  <div style="flex:1;min-width:120px"><label>Unidade</label><input name="unit" value="un" maxlength="10"></div>
+  <div style="flex:1;min-width:120px"><label>Stock</label><input name="stock" type="number" min="0" value="0"></div></div>
+  <label>Fotografia</label><input name="photo" type="file" accept="image/*">
+  <label><input type="checkbox" name="active" checked style="width:auto;margin-right:6px">Visível na loja</label><br><br>
+  <button class="btn" id="sv">Guardar produto</button> <button type="button" class="btn sec" id="cl">Limpar</button></form></div>
+  <div class="panel"><h3 style="margin-top:0">Produtos</h3><div id="plist"></div></div>
+  <div class="panel"><h3 style="margin-top:0">Encomendas</h3><div id="olist"></div></div>`;
+  $("#lo").onclick = logout; $("#pf").onsubmit = saveProduct; $("#cl").onclick = clearForm;
+  await loadProducts(); drawPlist(); loadOrders();
+}
+function loginView(){
+  $("#app").innerHTML = `<div class="panel" style="max-width:380px;margin:30px auto"><h2 style="margin-top:0">Entrar</h2><form id="lf">
+  <label>Email</label><input name="e" type="email" required autocomplete="username"><label>Palavra-passe</label><input name="p" type="password" required autocomplete="current-password">
+  <button class="btn" style="width:100%">Entrar</button></form></div>`;
+  $("#lf").onsubmit = async e => { e.preventDefault(); const f = new FormData(e.target);
+    const {error} = await db.auth.signInWithPassword({email:f.get("e"), password:f.get("p")});
+    if(error) toast("Não foi possível entrar: "+error.message); else renderAdmin(); };
+}
+async function logout(){ await db.auth.signOut(); user=null; renderAdmin(); }
+function clearForm(){ $("#pf").reset(); $("#pf").id.value=""; $("#ft").textContent="Novo produto"; }
+
+async function saveProduct(e){
+  e.preventDefault(); const f = e.target, btn = $("#sv"); btn.disabled = true; btn.textContent = "A guardar...";
+  try{
+    const id = f.id.value, cur = products.find(p=>p.id===id);
+    let image_url = cur ? cur.image_url : null;
+    const file = f.photo.files[0];
+    if(file){
+      const ext = (file.name.split(".").pop()||"jpg").toLowerCase().replace(/[^a-z0-9]/g,"");
+      const path = `${Date.now()}-${Math.random().toString(36).slice(2,8)}.${ext}`;
+      const up = await db.storage.from(BUCKET).upload(path, file, {contentType:file.type});
+      if(up.error) throw up.error;
+      image_url = db.storage.from(BUCKET).getPublicUrl(path).data.publicUrl;
+    }
+    const row = {name:f.name.value.trim(), description:f.description.value.trim()||null, price:parseFloat(f.price.value), unit:f.unit.value.trim()||"un", stock:parseInt(f.stock.value||0), active:f.active.checked, image_url, updated_at:new Date().toISOString()};
+    const r = id ? await db.from("products").update(row).eq("id",id) : await db.from("products").insert(row);
+    if(r.error) throw r.error;
+    toast("Produto guardado"); clearForm(); await loadProducts(); drawPlist();
+  }catch(err){ toast("Erro: "+err.message); }
+  btn.disabled = false; btn.textContent = "Guardar produto";
+}
+function drawPlist(){
+  $("#plist").innerHTML = products.length ? products.map(p => `<div class="item"><div><strong>${esc(p.name)}</strong> ${p.active?"":'<span class="tag">Oculto</span>'}<br><span class="muted">${money(p.price)} · stock ${p.stock}</span></div>
+  <div><button class="btn sec" data-e="${p.id}">Editar</button> <button class="btn red" data-d="${p.id}">Apagar</button></div></div>`).join("") : `<p class="muted">Ainda não adicionou produtos.</p>`;
+  document.querySelectorAll("[data-e]").forEach(b => b.onclick = () => { const p = products.find(x=>x.id===b.dataset.e), f=$("#pf");
+    f.id.value=p.id; f.name.value=p.name; f.description.value=p.description||""; f.price.value=p.price; f.unit.value=p.unit||"un"; f.stock.value=p.stock; f.active.checked=p.active;
+    $("#ft").textContent="Editar produto (deixe a fotografia vazia para manter a atual)"; scrollTo({top:0,behavior:"smooth"}); });
+  document.querySelectorAll("[data-d]").forEach(b => b.onclick = async () => { if(!confirm("Apagar este produto?")) return;
+    const {error} = await db.from("products").delete().eq("id",b.dataset.d); if(error) return toast("Erro: "+error.message); await loadProducts(); drawPlist(); });
+}
+async function loadOrders(){
+  const {data,error} = await db.from("orders").select("*").order("created_at",{ascending:false}).limit(100);
+  if(error) return $("#olist").innerHTML = `<p class="muted">Erro: ${esc(error.message)}</p>`;
+  const st = ["pendente","confirmada","entregue","cancelada"];
+  $("#olist").innerHTML = data.length ? data.map(o => `<div class="item" style="align-items:flex-start"><div>
+    <strong>${esc(o.customer_name)}</strong> · <a href="tel:${esc(o.customer_phone)}">${esc(o.customer_phone)}</a><br>
+    <span class="muted">${new Date(o.created_at).toLocaleString("pt-PT")}${o.customer_address?" · "+esc(o.customer_address):""}</span><br>
+    ${(o.items||[]).map(i=>`${i.qty}× ${esc(i.name)}`).join(", ")}<br>${o.notes?`<em>${esc(o.notes)}</em><br>`:""}<span class="price">${money(o.total)}</span></div>
+    <select data-s="${o.id}" style="width:auto">${st.map(s=>`<option ${s===o.status?"selected":""}>${s}</option>`).join("")}</select></div>`).join("") : `<p class="muted">Ainda não há encomendas.</p>`;
+  document.querySelectorAll("[data-s]").forEach(s => s.onchange = async () => { const {error} = await db.from("orders").update({status:s.value}).eq("id",s.dataset.s); toast(error?"Erro: "+error.message:"Estado atualizado"); });
+}
+
+route();
+</script>
+</body>
+</html>
