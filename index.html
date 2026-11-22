@@ -60,6 +60,7 @@ const SUPABASE_KEY = "sb_publishable_0X0mnsZkiA2VIT4lkUqzOw_9qzMC2qI";
 const ADMIN_UID = "8f22bb51-ff5d-4835-a0ee-eb86f96345df";
 const BUCKET = "product-images";
 const MOEDA = "MT";
+const WHATSAPP = "258877494120";
 // ========================
 
 const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
@@ -136,8 +137,10 @@ async function sendOrder(e){
   const fd = new FormData(e.target);
   const {error} = await db.from("orders").insert({customer_name:fd.get("n").trim(), customer_phone:fd.get("t").trim(), customer_address:fd.get("a").trim()||null, notes:fd.get("o").trim()||null, items, total, status:"pendente"});
   if(error){toast("Erro ao enviar: "+error.message);btn.disabled=false;btn.textContent="Enviar encomenda";return}
+  const msg = `Olá! Fiz uma encomenda na Mini Mercearia.\n\n` + items.map(i => `${i.qty}x ${i.name} (${money(i.price)})`).join("\n") + `\n\nTotal: ${money(total)}\nNome: ${fd.get("n").trim()}\nTelefone: ${fd.get("t").trim()}` + (fd.get("a").trim() ? `\nEndereço: ${fd.get("a").trim()}` : "") + (fd.get("o").trim() ? `\nNotas: ${fd.get("o").trim()}` : "");
+  const wa = `https://wa.me/${WHATSAPP}?text=${encodeURIComponent(msg)}`;
   cart = {}; updCart();
-  $("#drawer").innerHTML = `<h2>Encomenda enviada!</h2><p>Obrigado. Vamos contactá-lo em breve para confirmar.</p><button class="btn" id="ok">Fechar</button>`;
+  $("#drawer").innerHTML = `<h2>Encomenda enviada!</h2><p>Obrigado. Vamos contactá-lo em breve para confirmar.</p><p>Para agilizar, envie também os detalhes por WhatsApp:</p><p><a class="btn" style="display:block;text-align:center;text-decoration:none;background:#25d366" href="${wa}" target="_blank" rel="noopener">Enviar por WhatsApp</a></p><button class="btn sec" id="ok">Fechar</button>`;
   $("#ok").onclick = () => $("#drawer").classList.remove("open");
 }
 
