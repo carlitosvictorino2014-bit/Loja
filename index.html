@@ -7,6 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@400;600;800&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js"></script>
 <style>
 :root{--bg:#f4f7f2;--ink:#14241a;--card:#fff;--green:#1d5a38;--mango:#f4b72c;--red:#c93a2b;--line:#d9e2d6;--muted:#5d6e62}
 @media (prefers-color-scheme:dark){:root{--bg:#0f1a13;--ink:#eaf2ea;--card:#17261c;--green:#4fbf7f;--line:#2a3d30;--muted:#9bb0a0}}
@@ -159,7 +160,7 @@ async function renderAdmin(){
   <div class="row" style="align-items:flex-start"><div style="flex:1;min-width:120px"><label>Preço (${MOEDA})*</label><input name="price" type="number" step="0.01" min="0" required></div>
   <div style="flex:1;min-width:120px"><label>Unidade</label><input name="unit" value="un" maxlength="10"></div>
   <div style="flex:1;min-width:120px"><label>Stock</label><input name="stock" type="number" min="0" value="0"></div></div>
-  <label>Fotografia</label><input name="photo" type="file" accept="image/*">
+  <label>Fotografia</label><input name="photo" type="file" accept="image/*,.heic,.heif">
   <label><input type="checkbox" name="active" checked style="width:auto;margin-right:6px">Visível na loja</label><br><br>
   <button class="btn" id="sv">Guardar produto</button> <button type="button" class="btn sec" id="cl">Limpar</button></form></div>
   <div class="panel"><h3 style="margin-top:0">Produtos</h3><div id="plist"></div></div>
@@ -183,7 +184,12 @@ async function saveProduct(e){
   try{
     const id = f.id.value, cur = products.find(p=>p.id===id);
     let image_url = cur ? cur.image_url : null;
-    const file = f.photo.files[0];
+    let file = f.photo.files[0];
+    if(file && (/hei[cf]/i.test(file.type) || /\.hei[cf]$/i.test(file.name))){
+      btn.textContent = "A converter foto...";
+      const out = await heic2any({blob:file, toType:"image/jpeg", quality:0.85});
+      file = new File([Array.isArray(out)?out[0]:out], file.name.replace(/\.hei[cf]$/i,".jpg"), {type:"image/jpeg"});
+    }
     if(file){
       const ext = (file.name.split(".").pop()||"jpg").toLowerCase().replace(/[^a-z0-9]/g,"");
       const path = `${Date.now()}-${Math.random().toString(36).slice(2,8)}.${ext}`;
