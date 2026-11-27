@@ -3,19 +3,19 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Mini Mercearia</title>
+<title>Mini Mercearia PC</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@400;600;800&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js"></script>
 <style>
-:root{--bg:#f4f7f2;--ink:#14241a;--card:#fff;--green:#1d5a38;--mango:#f4b72c;--red:#c93a2b;--line:#d9e2d6;--muted:#5d6e62}
-@media (prefers-color-scheme:dark){:root{--bg:#0f1a13;--ink:#eaf2ea;--card:#17261c;--green:#4fbf7f;--line:#2a3d30;--muted:#9bb0a0}}
+:root{--bg:#fffaf5;--ink:#241a14;--card:#fff;--green:#d9560a;--mango:#ff8a1f;--red:#c93a2b;--line:#f1dccb;--muted:#7a6a5f}
+@media (prefers-color-scheme:dark){:root{--bg:#1a120c;--ink:#f7eee6;--card:#26190f;--green:#ff9a47;--line:#44301f;--muted:#c2ab98}}
 *{box-sizing:border-box}
 body{margin:0;font-family:'Bricolage Grotesque',system-ui,sans-serif;background:var(--bg);color:var(--ink);line-height:1.45}
 button,input,select,textarea{font:inherit;color:inherit}
 header{background:var(--green);color:#fff;padding:18px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px;position:sticky;top:0;z-index:5}
-@media (prefers-color-scheme:dark){header{background:#143523}}
+@media (prefers-color-scheme:dark){header{background:#8a3a07}}
 header h1{margin:0;font-size:1.6rem;font-weight:800;letter-spacing:-.02em}
 header small{display:block;font-weight:400;opacity:.85;font-size:.85rem}
 .btn{border:0;border-radius:10px;padding:10px 16px;font-weight:600;cursor:pointer;background:var(--mango);color:#14241a}
@@ -41,17 +41,21 @@ label{font-weight:600;font-size:.9rem}
 .qty{display:flex;align-items:center;gap:8px}
 .qty button{width:30px;height:30px;border-radius:8px;border:1.5px solid var(--line);background:var(--card);cursor:pointer}
 .item{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--line)}
-.hide{display:none}
+.hide{display:none!important}
+.chip{border:1.5px solid var(--line);background:var(--card);border-radius:999px;padding:6px 14px;cursor:pointer;font-weight:600}
+.chip.on{background:var(--mango);border-color:var(--mango);color:#14241a}
+#wa{position:fixed;right:16px;bottom:16px;z-index:6;background:#25d366;color:#fff;text-decoration:none;font-weight:600;padding:12px 18px;border-radius:999px;box-shadow:0 4px 14px rgba(0,0,0,.3)}
 @media (prefers-reduced-motion:reduce){#drawer{transition:none}}
 </style>
 </head>
 <body>
 <header>
-  <h1>Mini Mercearia<small>Encomende e nós entramos em contacto</small></h1>
+  <h1>Mini Mercearia PC<small>Boane, Bairro Novo, Rua da Esquadra<br><span id="st"></span></small></h1>
   <div class="row"><button class="btn" id="cartBtn">Carrinho (<span id="cnt">0</span>)</button></div>
 </header>
 <main id="app"></main>
 <aside id="drawer" aria-label="Carrinho"></aside>
+<a id="wa" target="_blank" rel="noopener" aria-label="Falar no WhatsApp">WhatsApp</a>
 <div id="toast" role="status"></div>
 
 <script>
@@ -69,6 +73,14 @@ const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const money = n => Number(n).toLocaleString("pt-PT", {minimumFractionDigits:2, maximumFractionDigits:2}) + " " + MOEDA;
 let products = [], cart = {}, user = null;
+function openNow(){
+  const p = new Intl.DateTimeFormat("pt-PT",{timeZone:"Africa/Maputo",hour:"numeric",minute:"numeric",hour12:false}).formatToParts(new Date());
+  const t = (+p.find(x=>x.type==="hour").value % 24)*60 + +p.find(x=>x.type==="minute").value;
+  return t >= 540 && t < 1170;
+}
+function updStatus(){ $("#st").textContent = openNow() ? "🟢 Aberto agora · fecha às 19h30" : "🔴 Fechado · abre às 9h"; }
+updStatus(); setInterval(updStatus, 60000);
+$("#wa").href = "https://wa.me/"+WHATSAPP+"?text="+encodeURIComponent("Olá! Tenho uma dúvida sobre a Mini Mercearia PC.");
 
 function toast(m){const t=$("#toast");t.textContent=m;t.style.display="block";clearTimeout(t._t);t._t=setTimeout(()=>t.style.display="none",3500)}
 const isAdmin = () => user && user.id === ADMIN_UID;
@@ -83,22 +95,36 @@ function route(){ location.hash === "#admin" ? renderAdmin() : renderShop(); }
 window.addEventListener("hashchange", route);
 
 /* ---------- LOJA ---------- */
-let q = "";
+let q = "", cat = "";
+const CATS = ["Bebidas","Alimentos","Detergentes"];
+function drawCats(){
+  $("#cats").innerHTML = ["Todos",...CATS].map(c => `<button class="chip ${(c==="Todos" ? cat==="" : cat===c) ? "on" : ""}" data-c="${c}">${c}</button>`).join("");
+  document.querySelectorAll("[data-c]").forEach(b => b.onclick = () => { cat = b.dataset.c==="Todos" ? "" : b.dataset.c; drawCats(); drawGrid(); });
+}
 async function renderShop(){
+  $("#wa").classList.remove("hide");
   $("#cartBtn").classList.remove("hide");
-  $("#app").innerHTML = `<input id="q" type="search" placeholder="Procurar produto..." value="${esc(q)}" aria-label="Procurar produto"><div class="grid" id="grid"></div>`;
+  $("#app").innerHTML = `<input id="q" type="search" placeholder="Procurar produto..." value="${esc(q)}" aria-label="Procurar produto"><div class="row" id="cats" style="justify-content:flex-start;margin-bottom:14px"></div><div class="grid" id="grid"></div>
+  <div class="panel" style="margin-top:20px;margin-bottom:70px"><h3 style="margin-top:0">Como funciona</h3>
+  <p><strong>Entregas em pontos de recolha:</strong><br>Maputo Cidade: Baixa da Cidade<br>Matola: João Mateus<br>Boane: Esquadra</p>
+  <p><strong>Pagamento:</strong> na entrega ou recolha. Não há pagamento online.</p>
+  <p><strong>Horário:</strong> das 9h às 19h30.</p>
+  <p><strong>Loja:</strong> Boane, Bairro Novo, Rua da Esquadra.</p>
+  <a class="btn" style="text-decoration:none;display:inline-block" target="_blank" rel="noopener" href="https://maps.app.goo.gl/UXSa4HvSychfQ73J7?g_st=aw">Ver no mapa</a></div>`;
   $("#q").oninput = e => { q = e.target.value; drawGrid(); };
+  drawCats();
   await loadProducts();
   drawGrid();
 }
 function drawGrid(){
-  const list = products.filter(p => p.active && p.name.toLowerCase().includes(q.toLowerCase()));
+  const list = products.filter(p => p.active && p.name.toLowerCase().includes(q.toLowerCase()) && (!cat || p.category===cat));
   $("#grid").innerHTML = list.length ? list.map(p => `
     <div class="p">
       ${p.image_url ? `<img src="${esc(p.image_url)}" alt="${esc(p.name)}" loading="lazy">` : `<div class="ph"></div>`}
       <div class="b">
         <h3>${esc(p.name)}</h3>
         ${p.description ? `<span class="muted">${esc(p.description)}</span>` : ""}
+        ${p.old_price && p.old_price > p.price ? `<span class="muted"><s>${money(p.old_price)}</s> <span class="tag">Promoção</span></span>` : ""}
         <span class="price">${money(p.price)} <span class="muted">/ ${esc(p.unit||"un")}</span></span>
         ${p.stock <= 0 ? `<span class="tag">Esgotado</span>` : `<button class="btn" data-add="${p.id}" style="margin-top:auto">Adicionar</button>`}
       </div>
@@ -118,9 +144,9 @@ function updCart(){
   ${items.length ? `<p class="row"><strong>Total</strong><span class="price">${money(cartTotal())}</span></p>
   <form id="ord"><label>Nome*</label><input name="n" required maxlength="80" autocomplete="name">
   <label>Telefone*</label><input name="t" required type="tel" maxlength="30" autocomplete="tel">
-  <label>Endereço de entrega</label><input name="a" maxlength="200" autocomplete="street-address">
+  <label>Ponto de recolha*</label><select name="a" required><option value="" disabled selected>Escolha...</option><option>Maputo Cidade: Baixa da Cidade</option><option>Matola: João Mateus</option><option>Boane: Esquadra</option></select>
   <label>Notas</label><textarea name="o" rows="2" maxlength="300"></textarea>
-  <button class="btn" style="width:100%" id="send">Enviar encomenda</button><p class="muted">Sem pagamento online. Entramos em contacto para confirmar.</p></form>` : ""}`;
+  <button class="btn" style="width:100%" id="send">Enviar encomenda</button><p class="muted">Pagamento na entrega ou recolha, sem pagamento online. Entramos em contacto para confirmar.</p></form>` : ""}`;
   $("#closeCart").onclick = () => d.classList.remove("open");
   d.querySelectorAll("[data-a]").forEach(b => b.onclick = () => { cart[b.dataset.a]++; updCart(); });
   d.querySelectorAll("[data-m]").forEach(b => b.onclick = () => { if(--cart[b.dataset.m] <= 0) delete cart[b.dataset.m]; updCart(); });
@@ -138,7 +164,7 @@ async function sendOrder(e){
   const fd = new FormData(e.target);
   const {error} = await db.from("orders").insert({customer_name:fd.get("n").trim(), customer_phone:fd.get("t").trim(), customer_address:fd.get("a").trim()||null, notes:fd.get("o").trim()||null, items, total, status:"pendente"});
   if(error){toast("Erro ao enviar: "+error.message);btn.disabled=false;btn.textContent="Enviar encomenda";return}
-  const msg = `Olá! Fiz uma encomenda na Mini Mercearia.\n\n` + items.map(i => `${i.qty}x ${i.name} (${money(i.price)})`).join("\n") + `\n\nTotal: ${money(total)}\nNome: ${fd.get("n").trim()}\nTelefone: ${fd.get("t").trim()}` + (fd.get("a").trim() ? `\nEndereço: ${fd.get("a").trim()}` : "") + (fd.get("o").trim() ? `\nNotas: ${fd.get("o").trim()}` : "");
+  const msg = `Olá! Fiz uma encomenda na Mini Mercearia PC.\n\n` + items.map(i => `${i.qty}x ${i.name} (${money(i.price)})`).join("\n") + `\n\nTotal: ${money(total)}\nNome: ${fd.get("n").trim()}\nTelefone: ${fd.get("t").trim()}` + (fd.get("a").trim() ? `\nEndereço: ${fd.get("a").trim()}` : "") + (fd.get("o").trim() ? `\nNotas: ${fd.get("o").trim()}` : "");
   const wa = `https://wa.me/${WHATSAPP}?text=${encodeURIComponent(msg)}`;
   cart = {}; updCart();
   $("#drawer").innerHTML = `<h2>Encomenda enviada!</h2><p>Obrigado. Vamos contactá-lo em breve para confirmar.</p><p>Para agilizar, envie também os detalhes por WhatsApp:</p><p><a class="btn" style="display:block;text-align:center;text-decoration:none;background:#25d366" href="${wa}" target="_blank" rel="noopener">Enviar por WhatsApp</a></p><button class="btn sec" id="ok">Fechar</button>`;
@@ -147,6 +173,7 @@ async function sendOrder(e){
 
 /* ---------- ADMIN ---------- */
 async function renderAdmin(){
+  $("#wa").classList.add("hide");
   $("#cartBtn").classList.add("hide");
   $("#drawer").classList.remove("open");
   const {data} = await db.auth.getSession(); user = data.session ? data.session.user : null;
@@ -159,7 +186,9 @@ async function renderAdmin(){
   <label>Descrição</label><input name="description" maxlength="150">
   <div class="row" style="align-items:flex-start"><div style="flex:1;min-width:120px"><label>Preço (${MOEDA})*</label><input name="price" type="number" step="0.01" min="0" required></div>
   <div style="flex:1;min-width:120px"><label>Unidade</label><input name="unit" value="un" maxlength="10"></div>
-  <div style="flex:1;min-width:120px"><label>Stock</label><input name="stock" type="number" min="0" value="0"></div></div>
+  <div style="flex:1;min-width:120px"><label>Stock</label><input name="stock" type="number" min="0" value="0"></div>
+  <div style="flex:1;min-width:120px"><label>Preço antigo (promoção)</label><input name="old_price" type="number" step="0.01" min="0"></div>
+  <div style="flex:1;min-width:120px"><label>Categoria</label><select name="category"><option>Alimentos</option><option>Bebidas</option><option>Detergentes</option></select></div></div>
   <label>Fotografia</label><input name="photo" type="file" accept="image/*,.heic,.heif">
   <label><input type="checkbox" name="active" checked style="width:auto;margin-right:6px">Visível na loja</label><br><br>
   <button class="btn" id="sv">Guardar produto</button> <button type="button" class="btn sec" id="cl">Limpar</button></form></div>
@@ -197,7 +226,7 @@ async function saveProduct(e){
       if(up.error) throw up.error;
       image_url = db.storage.from(BUCKET).getPublicUrl(path).data.publicUrl;
     }
-    const row = {name:f.name.value.trim(), description:f.description.value.trim()||null, price:parseFloat(f.price.value), unit:f.unit.value.trim()||"un", stock:parseInt(f.stock.value||0), active:f.active.checked, image_url, updated_at:new Date().toISOString()};
+    const row = {name:f.name.value.trim(), description:f.description.value.trim()||null, price:parseFloat(f.price.value), unit:f.unit.value.trim()||"un", stock:parseInt(f.stock.value||0), active:f.active.checked, category:f.category.value, old_price:f.old_price.value ? parseFloat(f.old_price.value) : null, image_url, updated_at:new Date().toISOString()};
     const r = id ? await db.from("products").update(row).eq("id",id) : await db.from("products").insert(row);
     if(r.error) throw r.error;
     toast("Produto guardado"); clearForm(); await loadProducts(); drawPlist();
@@ -208,7 +237,7 @@ function drawPlist(){
   $("#plist").innerHTML = products.length ? products.map(p => `<div class="item"><div><strong>${esc(p.name)}</strong> ${p.active?"":'<span class="tag">Oculto</span>'}<br><span class="muted">${money(p.price)} · stock ${p.stock}</span></div>
   <div><button class="btn sec" data-e="${p.id}">Editar</button> <button class="btn red" data-d="${p.id}">Apagar</button></div></div>`).join("") : `<p class="muted">Ainda não adicionou produtos.</p>`;
   document.querySelectorAll("[data-e]").forEach(b => b.onclick = () => { const p = products.find(x=>x.id===b.dataset.e), f=$("#pf");
-    f.id.value=p.id; f.name.value=p.name; f.description.value=p.description||""; f.price.value=p.price; f.unit.value=p.unit||"un"; f.stock.value=p.stock; f.active.checked=p.active;
+    f.id.value=p.id; f.name.value=p.name; f.description.value=p.description||""; f.price.value=p.price; f.unit.value=p.unit||"un"; f.stock.value=p.stock; f.active.checked=p.active; f.category.value=p.category||"Alimentos"; f.old_price.value=p.old_price||"";
     $("#ft").textContent="Editar produto (deixe a fotografia vazia para manter a atual)"; scrollTo({top:0,behavior:"smooth"}); });
   document.querySelectorAll("[data-d]").forEach(b => b.onclick = async () => { if(!confirm("Apagar este produto?")) return;
     const {error} = await db.from("products").delete().eq("id",b.dataset.d); if(error) return toast("Erro: "+error.message); await loadProducts(); drawPlist(); });
