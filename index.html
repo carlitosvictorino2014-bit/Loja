@@ -42,6 +42,12 @@ label{font-weight:600;font-size:.9rem}
 .qty button{width:30px;height:30px;border-radius:8px;border:1.5px solid var(--line);background:var(--card);cursor:pointer}
 .item{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--line)}
 .hide{display:none!important}
+.strip{display:flex;gap:14px;overflow-x:auto;padding-bottom:8px;scroll-snap-type:x mandatory}
+.strip .p{min-width:160px;max-width:160px;scroll-snap-align:start}
+#feat{margin-bottom:22px}
+#bar{display:none;position:fixed;left:0;right:0;bottom:0;z-index:7;border-radius:0;padding:16px 16px calc(16px + env(safe-area-inset-bottom,0px));font-size:1.05rem;width:100%}
+#drawer.open ~ #bar{display:none!important}
+@media (max-width:700px){#bar:not(.hide){display:block}body.hasbar #wa{bottom:80px}body.hasbar #toast{bottom:80px}}
 .chip{border:1.5px solid var(--line);background:var(--card);border-radius:999px;padding:6px 14px;cursor:pointer;font-weight:600}
 .chip.on{background:var(--mango);border-color:var(--mango);color:#14241a}
 #wa{position:fixed;right:16px;bottom:16px;z-index:6;background:#25d366;color:#fff;text-decoration:none;font-weight:600;padding:12px 18px;border-radius:999px;box-shadow:0 4px 14px rgba(0,0,0,.3)}
@@ -56,6 +62,7 @@ label{font-weight:600;font-size:.9rem}
 <main id="app"></main>
 <aside id="drawer" aria-label="Carrinho"></aside>
 <a id="wa" target="_blank" rel="noopener" aria-label="Falar no WhatsApp">WhatsApp</a>
+<button class="btn hide" id="bar"></button>
 <div id="toast" role="status"></div>
 
 <script>
@@ -102,9 +109,9 @@ function drawCats(){
   document.querySelectorAll("[data-c]").forEach(b => b.onclick = () => { cat = b.dataset.c==="Todos" ? "" : b.dataset.c; drawCats(); drawGrid(); });
 }
 async function renderShop(){
-  $("#wa").classList.remove("hide");
+  $("#wa").classList.remove("hide"); updBar();
   $("#cartBtn").classList.remove("hide");
-  $("#app").innerHTML = `<input id="q" type="search" placeholder="Procurar produto..." value="${esc(q)}" aria-label="Procurar produto"><div class="row" id="cats" style="justify-content:flex-start;margin-bottom:14px"></div><div class="grid" id="grid"></div>
+  $("#app").innerHTML = `<input id="q" type="search" placeholder="Procurar produto..." value="${esc(q)}" aria-label="Procurar produto"><div class="row" id="cats" style="justify-content:flex-start;margin-bottom:14px"></div><div id="feat"></div><div class="grid" id="grid"></div>
   <div class="panel" style="margin-top:20px;margin-bottom:70px"><h3 style="margin-top:0">Como funciona</h3>
   <p><strong>Entregas em pontos de recolha:</strong><br>Maputo Cidade: Baixa da Cidade<br>Matola: João Mateus<br>Boane: Esquadra</p>
   <p><strong>Pagamento:</strong> na entrega ou recolha. Não há pagamento online.</p>
@@ -116,9 +123,7 @@ async function renderShop(){
   await loadProducts();
   drawGrid();
 }
-function drawGrid(){
-  const list = products.filter(p => p.active && p.name.toLowerCase().includes(q.toLowerCase()) && (!cat || p.category===cat));
-  $("#grid").innerHTML = list.length ? list.map(p => `
+function cardHTML(p){ return `
     <div class="p">
       ${p.image_url ? `<img src="${esc(p.image_url)}" alt="${esc(p.name)}" loading="lazy">` : `<div class="ph"></div>`}
       <div class="b">
@@ -128,13 +133,27 @@ function drawGrid(){
         <span class="price">${money(p.price)} <span class="muted">/ ${esc(p.unit||"un")}</span></span>
         ${p.stock <= 0 ? `<span class="tag">Esgotado</span>` : `<button class="btn" data-add="${p.id}" style="margin-top:auto">Adicionar</button>`}
       </div>
-    </div>`).join("") : `<p class="muted">Ainda não há produtos disponíveis.</p>`;
+    </div>`;
+}
+function drawGrid(){
+  const list = products.filter(p => p.active && p.name.toLowerCase().includes(q.toLowerCase()) && (!cat || p.category===cat));
+  const feat = products.filter(p => p.active && p.featured && p.stock > 0);
+  $("#feat").innerHTML = (feat.length && !q && !cat) ? `<h2 style="margin:0 0 10px">⭐ Em destaque</h2><div class="strip">${feat.map(cardHTML).join("")}</div>` : "";
+  $("#grid").innerHTML = list.length ? list.map(cardHTML).join("") : `<p class="muted">Ainda não há produtos disponíveis.</p>`;
   document.querySelectorAll("[data-add]").forEach(b => b.onclick = () => { cart[b.dataset.add] = (cart[b.dataset.add]||0)+1; updCart(); toast("Adicionado ao carrinho"); });
 }
 
 /* ---------- CARRINHO ---------- */
 const cartTotal = () => Object.entries(cart).reduce((s,[id,n]) => { const p = products.find(x=>x.id===id); return s + (p ? p.price*n : 0); }, 0);
+function updBar(){
+  const n = Object.values(cart).reduce((a,b)=>a+b,0), show = n > 0 && location.hash !== "#admin";
+  $("#bar").textContent = `Ver carrinho · ${n} ${n===1?"item":"itens"} · ${money(cartTotal())}`;
+  $("#bar").classList.toggle("hide", !show);
+  document.body.classList.toggle("hasbar", show);
+}
+$("#bar").onclick = () => $("#cartBtn").click();
 function updCart(){
+  updBar();
   $("#cnt").textContent = Object.values(cart).reduce((a,b)=>a+b,0);
   const d = $("#drawer");
   const items = Object.entries(cart).map(([id,n]) => ({p:products.find(x=>x.id===id), n})).filter(x=>x.p);
@@ -144,7 +163,8 @@ function updCart(){
   ${items.length ? `<p class="row"><strong>Total</strong><span class="price">${money(cartTotal())}</span></p>
   <form id="ord"><label>Nome*</label><input name="n" required maxlength="80" autocomplete="name">
   <label>Telefone*</label><input name="t" required type="tel" maxlength="30" autocomplete="tel">
-  <label>Ponto de recolha*</label><select name="a" required><option value="" disabled selected>Escolha...</option><option>Maputo Cidade: Baixa da Cidade</option><option>Matola: João Mateus</option><option>Boane: Esquadra</option></select>
+  <label>Ponto de recolha (opcional)</label><select name="p"><option value="">Nenhum</option><option>Maputo Cidade: Baixa da Cidade</option><option>Matola: João Mateus</option><option>Boane: Esquadra</option></select>
+  <label>Ou o seu endereço de entrega</label><input name="a" maxlength="200" autocomplete="street-address" placeholder="Bairro, rua, ponto de referência">
   <label>Notas</label><textarea name="o" rows="2" maxlength="300"></textarea>
   <button class="btn" style="width:100%" id="send">Enviar encomenda</button><p class="muted">Pagamento na entrega ou recolha, sem pagamento online. Entramos em contacto para confirmar.</p></form>` : ""}`;
   $("#closeCart").onclick = () => d.classList.remove("open");
@@ -162,9 +182,11 @@ async function sendOrder(e){
   if(!items.length){toast("Os produtos do carrinho já não estão disponíveis.");btn.disabled=false;btn.textContent="Enviar encomenda";return}
   const total = items.reduce((s,i)=>s+i.price*i.qty,0);
   const fd = new FormData(e.target);
-  const {error} = await db.from("orders").insert({customer_name:fd.get("n").trim(), customer_phone:fd.get("t").trim(), customer_address:fd.get("a").trim()||null, notes:fd.get("o").trim()||null, items, total, status:"pendente"});
+  const addr = [fd.get("p"), fd.get("a").trim()].filter(Boolean).join(" | ");
+  if(!addr){toast("Escolha um ponto de recolha ou escreva o seu endereço.");btn.disabled=false;btn.textContent="Enviar encomenda";return}
+  const {error} = await db.from("orders").insert({customer_name:fd.get("n").trim(), customer_phone:fd.get("t").trim(), customer_address:addr||null, notes:fd.get("o").trim()||null, items, total, status:"pendente"});
   if(error){toast("Erro ao enviar: "+error.message);btn.disabled=false;btn.textContent="Enviar encomenda";return}
-  const msg = `Olá! Fiz uma encomenda na Mini Mercearia PC.\n\n` + items.map(i => `${i.qty}x ${i.name} (${money(i.price)})`).join("\n") + `\n\nTotal: ${money(total)}\nNome: ${fd.get("n").trim()}\nTelefone: ${fd.get("t").trim()}` + (fd.get("a").trim() ? `\nEndereço: ${fd.get("a").trim()}` : "") + (fd.get("o").trim() ? `\nNotas: ${fd.get("o").trim()}` : "");
+  const msg = `Olá! Fiz uma encomenda na Mini Mercearia PC.\n\n` + items.map(i => `${i.qty}x ${i.name} (${money(i.price)})`).join("\n") + `\n\nTotal: ${money(total)}\nNome: ${fd.get("n").trim()}\nTelefone: ${fd.get("t").trim()}` + (addr ? `\nEntrega: ${addr}` : "") + (fd.get("o").trim() ? `\nNotas: ${fd.get("o").trim()}` : "");
   const wa = `https://wa.me/${WHATSAPP}?text=${encodeURIComponent(msg)}`;
   cart = {}; updCart();
   $("#drawer").innerHTML = `<h2>Encomenda enviada!</h2><p>Obrigado. Vamos contactá-lo em breve para confirmar.</p><p>Para agilizar, envie também os detalhes por WhatsApp:</p><p><a class="btn" style="display:block;text-align:center;text-decoration:none;background:#25d366" href="${wa}" target="_blank" rel="noopener">Enviar por WhatsApp</a></p><button class="btn sec" id="ok">Fechar</button>`;
@@ -173,7 +195,7 @@ async function sendOrder(e){
 
 /* ---------- ADMIN ---------- */
 async function renderAdmin(){
-  $("#wa").classList.add("hide");
+  $("#wa").classList.add("hide"); updBar();
   $("#cartBtn").classList.add("hide");
   $("#drawer").classList.remove("open");
   const {data} = await db.auth.getSession(); user = data.session ? data.session.user : null;
@@ -190,10 +212,10 @@ async function renderAdmin(){
   <div style="flex:1;min-width:120px"><label>Preço antigo (promoção)</label><input name="old_price" type="number" step="0.01" min="0"></div>
   <div style="flex:1;min-width:120px"><label>Categoria</label><select name="category"><option>Alimentos</option><option>Bebidas</option><option>Detergentes</option></select></div></div>
   <label>Fotografia</label><input name="photo" type="file" accept="image/*,.heic,.heif">
-  <label><input type="checkbox" name="active" checked style="width:auto;margin-right:6px">Visível na loja</label><br><br>
+  <label><input type="checkbox" name="active" checked style="width:auto;margin-right:6px">Visível na loja</label><br><label><input type="checkbox" name="featured" style="width:auto;margin-right:6px">Produto em destaque</label><br><br>
   <button class="btn" id="sv">Guardar produto</button> <button type="button" class="btn sec" id="cl">Limpar</button></form></div>
   <div class="panel"><h3 style="margin-top:0">Produtos</h3><div id="plist"></div></div>
-  <div class="panel"><h3 style="margin-top:0">Encomendas</h3><div id="olist"></div></div>`;
+  <div class="panel"><h3 style="margin-top:0">Encomendas</h3><div id="otabs" class="row" style="justify-content:flex-start;margin-bottom:10px"></div><div id="olist"></div></div>`;
   $("#lo").onclick = logout; $("#pf").onsubmit = saveProduct; $("#cl").onclick = clearForm;
   await loadProducts(); drawPlist(); loadOrders();
 }
@@ -226,7 +248,7 @@ async function saveProduct(e){
       if(up.error) throw up.error;
       image_url = db.storage.from(BUCKET).getPublicUrl(path).data.publicUrl;
     }
-    const row = {name:f.name.value.trim(), description:f.description.value.trim()||null, price:parseFloat(f.price.value), unit:f.unit.value.trim()||"un", stock:parseInt(f.stock.value||0), active:f.active.checked, category:f.category.value, old_price:f.old_price.value ? parseFloat(f.old_price.value) : null, image_url, updated_at:new Date().toISOString()};
+    const row = {name:f.name.value.trim(), description:f.description.value.trim()||null, price:parseFloat(f.price.value), unit:f.unit.value.trim()||"un", stock:parseInt(f.stock.value||0), active:f.active.checked, featured:f.featured.checked, category:f.category.value, old_price:f.old_price.value ? parseFloat(f.old_price.value) : null, image_url, updated_at:new Date().toISOString()};
     const r = id ? await db.from("products").update(row).eq("id",id) : await db.from("products").insert(row);
     if(r.error) throw r.error;
     toast("Produto guardado"); clearForm(); await loadProducts(); drawPlist();
@@ -237,21 +259,45 @@ function drawPlist(){
   $("#plist").innerHTML = products.length ? products.map(p => `<div class="item"><div><strong>${esc(p.name)}</strong> ${p.active?"":'<span class="tag">Oculto</span>'}<br><span class="muted">${money(p.price)} · stock ${p.stock}</span></div>
   <div><button class="btn sec" data-e="${p.id}">Editar</button> <button class="btn red" data-d="${p.id}">Apagar</button></div></div>`).join("") : `<p class="muted">Ainda não adicionou produtos.</p>`;
   document.querySelectorAll("[data-e]").forEach(b => b.onclick = () => { const p = products.find(x=>x.id===b.dataset.e), f=$("#pf");
-    f.id.value=p.id; f.name.value=p.name; f.description.value=p.description||""; f.price.value=p.price; f.unit.value=p.unit||"un"; f.stock.value=p.stock; f.active.checked=p.active; f.category.value=p.category||"Alimentos"; f.old_price.value=p.old_price||"";
+    f.id.value=p.id; f.name.value=p.name; f.description.value=p.description||""; f.price.value=p.price; f.unit.value=p.unit||"un"; f.stock.value=p.stock; f.active.checked=p.active; f.featured.checked=!!p.featured; f.category.value=p.category||"Alimentos"; f.old_price.value=p.old_price||"";
     $("#ft").textContent="Editar produto (deixe a fotografia vazia para manter a atual)"; scrollTo({top:0,behavior:"smooth"}); });
   document.querySelectorAll("[data-d]").forEach(b => b.onclick = async () => { if(!confirm("Apagar este produto?")) return;
     const {error} = await db.from("products").delete().eq("id",b.dataset.d); if(error) return toast("Erro: "+error.message); await loadProducts(); drawPlist(); });
 }
+let oview = "ativas";
 async function loadOrders(){
-  const {data,error} = await db.from("orders").select("*").order("created_at",{ascending:false}).limit(100);
+  const {data,error} = await db.from("orders").select("*").order("created_at",{ascending:false}).limit(300);
   if(error) return $("#olist").innerHTML = `<p class="muted">Erro: ${esc(error.message)}</p>`;
   const st = ["pendente","confirmada","entregue","cancelada"];
-  $("#olist").innerHTML = data.length ? data.map(o => `<div class="item" style="align-items:flex-start"><div>
+  const ativas = data.filter(o => !o.archived), hist = data.filter(o => o.archived);
+  const list = oview === "ativas" ? ativas : hist;
+  $("#otabs").innerHTML = `<button class="chip ${oview==="ativas"?"on":""}" data-v="ativas">Ativas (${ativas.length})</button><button class="chip ${oview==="hist"?"on":""}" data-v="hist">Histórico (${hist.length})</button>` + (oview==="hist" && hist.length ? `<button class="btn red" id="delAll">Apagar todo o histórico</button>` : "");
+  $("#olist").innerHTML = list.length ? list.map(o => `<div class="item" style="align-items:flex-start"><div>
     <strong>${esc(o.customer_name)}</strong> · <a href="tel:${esc(o.customer_phone)}">${esc(o.customer_phone)}</a><br>
     <span class="muted">${new Date(o.created_at).toLocaleString("pt-PT")}${o.customer_address?" · "+esc(o.customer_address):""}</span><br>
     ${(o.items||[]).map(i=>`${i.qty}× ${esc(i.name)}`).join(", ")}<br>${o.notes?`<em>${esc(o.notes)}</em><br>`:""}<span class="price">${money(o.total)}</span></div>
-    <select data-s="${o.id}" style="width:auto">${st.map(s=>`<option ${s===o.status?"selected":""}>${s}</option>`).join("")}</select></div>`).join("") : `<p class="muted">Ainda não há encomendas.</p>`;
-  document.querySelectorAll("[data-s]").forEach(s => s.onchange = async () => { const {error} = await db.from("orders").update({status:s.value}).eq("id",s.dataset.s); toast(error?"Erro: "+error.message:"Estado atualizado"); });
+    <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end">
+      <select data-s="${o.id}" style="width:auto;margin:0">${st.map(x=>`<option ${x===o.status?"selected":""}>${x}</option>`).join("")}</select>
+      <div class="row" style="justify-content:flex-end">${o.archived ? `<button class="btn sec" data-rs="${o.id}">Restaurar</button>` : `<button class="btn" data-ar="${o.id}">✓ Arquivar</button>`}<button class="btn red" data-del="${o.id}">Apagar</button></div>
+    </div></div>`).join("") : `<p class="muted">${oview==="ativas" ? "Sem encomendas ativas." : "O histórico está vazio."}</p>`;
+  document.querySelectorAll("[data-v]").forEach(b => b.onclick = () => { oview = b.dataset.v; loadOrders(); });
+  document.querySelectorAll("[data-s]").forEach(x => x.onchange = async () => { const {error} = await db.from("orders").update({status:x.value}).eq("id",x.dataset.s); toast(error?"Erro: "+error.message:"Estado atualizado"); });
+  document.querySelectorAll("[data-ar]").forEach(b => b.onclick = async () => {
+    const o = data.find(x => x.id === b.dataset.ar), upd = {archived:true};
+    if(o.status === "pendente" || o.status === "confirmada") upd.status = "entregue";
+    const {error} = await db.from("orders").update(upd).eq("id", o.id);
+    toast(error ? "Erro: "+error.message : "Arquivada no histórico"); loadOrders(); });
+  document.querySelectorAll("[data-rs]").forEach(b => b.onclick = async () => {
+    const {error} = await db.from("orders").update({archived:false}).eq("id", b.dataset.rs);
+    toast(error ? "Erro: "+error.message : "Encomenda restaurada"); loadOrders(); });
+  document.querySelectorAll("[data-del]").forEach(b => b.onclick = async () => {
+    if(!confirm("Apagar esta encomenda para sempre?")) return;
+    const {error} = await db.from("orders").delete().eq("id", b.dataset.del);
+    toast(error ? "Erro: "+error.message : "Encomenda apagada"); loadOrders(); });
+  const da = $("#delAll"); if(da) da.onclick = async () => {
+    if(!confirm("Apagar TODO o histórico para sempre? Esta ação não pode ser desfeita.")) return;
+    const {error} = await db.from("orders").delete().eq("archived", true);
+    toast(error ? "Erro: "+error.message : "Histórico apagado"); loadOrders(); };
 }
 
 route();
