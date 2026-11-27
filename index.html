@@ -265,39 +265,57 @@ function drawPlist(){
     const {error} = await db.from("products").delete().eq("id",b.dataset.d); if(error) return toast("Erro: "+error.message); await loadProducts(); drawPlist(); });
 }
 let oview = "ativas";
+const sel = new Set();
 async function loadOrders(){
+  sel.clear();
   const {data,error} = await db.from("orders").select("*").order("created_at",{ascending:false}).limit(300);
   if(error) return $("#olist").innerHTML = `<p class="muted">Erro: ${esc(error.message)}</p>`;
   const st = ["pendente","confirmada","entregue","cancelada"];
   const ativas = data.filter(o => !o.archived), hist = data.filter(o => o.archived);
   const list = oview === "ativas" ? ativas : hist;
-  $("#otabs").innerHTML = `<button class="chip ${oview==="ativas"?"on":""}" data-v="ativas">Ativas (${ativas.length})</button><button class="chip ${oview==="hist"?"on":""}" data-v="hist">Histórico (${hist.length})</button>` + (oview==="hist" && hist.length ? `<button class="btn red" id="delAll">Apagar todo o histórico</button>` : "");
-  $("#olist").innerHTML = list.length ? list.map(o => `<div class="item" style="align-items:flex-start"><div>
+  $("#otabs").innerHTML = `<button class="chip ${oview==="ativas"?"on":""}" data-v="ativas">Ativas (${ativas.length})</button><button class="chip ${oview==="hist"?"on":""}" data-v="hist">Histórico (${hist.length})</button>`;
+  const bar = list.length ? `<div class="row" id="obar" style="justify-content:flex-start;margin-bottom:8px">
+    <label style="display:flex;align-items:center;gap:6px;margin:0"><input type="checkbox" id="selAll" style="width:20px;height:20px;margin:0"> Selecionar tudo</label>
+    <span class="muted" id="selN"></span>
+    ${oview==="ativas" ? `<button class="btn" id="bAr" disabled>✓ Arquivar selecionadas</button>` : `<button class="btn sec" id="bRs" disabled>Restaurar selecionadas</button>`}
+    <button class="btn red" id="bDel" disabled>Apagar selecionadas</button></div>` : "";
+  $("#olist").innerHTML = bar + (list.length ? list.map(o => `<div class="item" style="align-items:flex-start">
+    <input type="checkbox" class="ck" data-k="${o.id}" aria-label="Selecionar encomenda" style="width:20px;height:20px;margin:4px 0 0;flex:none">
+    <div style="flex:1">
     <strong>${esc(o.customer_name)}</strong> · <a href="tel:${esc(o.customer_phone)}">${esc(o.customer_phone)}</a><br>
     <span class="muted">${new Date(o.created_at).toLocaleString("pt-PT")}${o.customer_address?" · "+esc(o.customer_address):""}</span><br>
     ${(o.items||[]).map(i=>`${i.qty}× ${esc(i.name)}`).join(", ")}<br>${o.notes?`<em>${esc(o.notes)}</em><br>`:""}<span class="price">${money(o.total)}</span></div>
     <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end">
       <select data-s="${o.id}" style="width:auto;margin:0">${st.map(x=>`<option ${x===o.status?"selected":""}>${x}</option>`).join("")}</select>
       <div class="row" style="justify-content:flex-end">${o.archived ? `<button class="btn sec" data-rs="${o.id}">Restaurar</button>` : `<button class="btn" data-ar="${o.id}">✓ Arquivar</button>`}<button class="btn red" data-del="${o.id}">Apagar</button></div>
-    </div></div>`).join("") : `<p class="muted">${oview==="ativas" ? "Sem encomendas ativas." : "O histórico está vazio."}</p>`;
+    </div></div>`).join("") : `<p class="muted">${oview==="ativas" ? "Sem encomendas ativas." : "O histórico está vazio."}</p>`);
+
+  const run = async (jobs, msg) => { const rs = await Promise.all(jobs); const er = rs.find(r => r.error); toast(er ? "Erro: "+er.error.message : msg); loadOrders(); };
+  const syncSel = () => {
+    const n = sel.size; const t = $("#selN"); if(!t) return;
+    t.textContent = n ? `${n} selecionada${n>1?"s":""}` : "";
+    ["bAr","bRs","bDel"].forEach(id => { const b = $("#"+id); if(b) b.disabled = !n; });
+    $("#selAll").checked = n > 0 && n === list.length;
+  };
+  document.querySelectorAll(".ck").forEach(c => c.onchange = () => { c.checked ? sel.add(c.dataset.k) : sel.delete(c.dataset.k); syncSel(); });
+  const sa = $("#selAll"); if(sa) sa.onchange = () => { sel.clear(); document.querySelectorAll(".ck").forEach(c => { c.checked = sa.checked; if(sa.checked) sel.add(c.dataset.k); }); syncSel(); };
+  const bAr = $("#bAr"); if(bAr) bAr.onclick = () => {
+    const ids = [...sel], pend = ids.filter(id => ["pendente","confirmada"].includes(data.find(o=>o.id===id).status)), rest = ids.filter(id => !pend.includes(id));
+    const jobs = []; if(pend.length) jobs.push(db.from("orders").update({archived:true,status:"entregue"}).in("id",pend)); if(rest.length) jobs.push(db.from("orders").update({archived:true}).in("id",rest));
+    run(jobs, `${ids.length} arquivada${ids.length>1?"s":""} no histórico`); };
+  const bRs = $("#bRs"); if(bRs) bRs.onclick = () => { const ids = [...sel]; run([db.from("orders").update({archived:false}).in("id",ids)], `${ids.length} restaurada${ids.length>1?"s":""}`); };
+  const bDel = $("#bDel"); if(bDel) bDel.onclick = () => { const ids = [...sel];
+    if(!confirm(`Apagar ${ids.length} encomenda${ids.length>1?"s":""} para sempre? Esta ação não pode ser desfeita.`)) return;
+    run([db.from("orders").delete().in("id",ids)], `${ids.length} apagada${ids.length>1?"s":""}`); };
+
   document.querySelectorAll("[data-v]").forEach(b => b.onclick = () => { oview = b.dataset.v; loadOrders(); });
   document.querySelectorAll("[data-s]").forEach(x => x.onchange = async () => { const {error} = await db.from("orders").update({status:x.value}).eq("id",x.dataset.s); toast(error?"Erro: "+error.message:"Estado atualizado"); });
-  document.querySelectorAll("[data-ar]").forEach(b => b.onclick = async () => {
-    const o = data.find(x => x.id === b.dataset.ar), upd = {archived:true};
+  document.querySelectorAll("[data-ar]").forEach(b => b.onclick = () => { const o = data.find(x => x.id === b.dataset.ar), upd = {archived:true};
     if(o.status === "pendente" || o.status === "confirmada") upd.status = "entregue";
-    const {error} = await db.from("orders").update(upd).eq("id", o.id);
-    toast(error ? "Erro: "+error.message : "Arquivada no histórico"); loadOrders(); });
-  document.querySelectorAll("[data-rs]").forEach(b => b.onclick = async () => {
-    const {error} = await db.from("orders").update({archived:false}).eq("id", b.dataset.rs);
-    toast(error ? "Erro: "+error.message : "Encomenda restaurada"); loadOrders(); });
-  document.querySelectorAll("[data-del]").forEach(b => b.onclick = async () => {
-    if(!confirm("Apagar esta encomenda para sempre?")) return;
-    const {error} = await db.from("orders").delete().eq("id", b.dataset.del);
-    toast(error ? "Erro: "+error.message : "Encomenda apagada"); loadOrders(); });
-  const da = $("#delAll"); if(da) da.onclick = async () => {
-    if(!confirm("Apagar TODO o histórico para sempre? Esta ação não pode ser desfeita.")) return;
-    const {error} = await db.from("orders").delete().eq("archived", true);
-    toast(error ? "Erro: "+error.message : "Histórico apagado"); loadOrders(); };
+    run([db.from("orders").update(upd).eq("id", o.id)], "Arquivada no histórico"); });
+  document.querySelectorAll("[data-rs]").forEach(b => b.onclick = () => run([db.from("orders").update({archived:false}).eq("id", b.dataset.rs)], "Encomenda restaurada"));
+  document.querySelectorAll("[data-del]").forEach(b => b.onclick = () => { if(!confirm("Apagar esta encomenda para sempre?")) return;
+    run([db.from("orders").delete().eq("id", b.dataset.del)], "Encomenda apagada"); });
 }
 
 route();
